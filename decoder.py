@@ -129,6 +129,56 @@ def atbash(text):
             result.append(char)
     return "".join(result)
 
+# ─── Vigenère ─────────────────────────────────────────────────────────────────
+
+def vigenere_decrypt(text, keyword):
+    """Decrypt a Vigenère cipher with a given keyword."""
+    keyword = keyword.lower()
+    result = []
+    key_index = 0
+    for char in text:
+        if char.isalpha():
+            shift = ord(keyword[key_index % len(keyword)]) - ord('a')
+            base = ord('A') if char.isupper() else ord('a')
+            result.append(chr((ord(char) - base - shift) % 26 + base))
+            key_index += 1
+        else:
+            result.append(char)
+    return "".join(result)
+
+
+def vigenere_auto(text, dictionary, max_key_length=10):
+    """
+    Crack a Vigenère cipher without knowing the keyword.
+    Tests key lengths 2-10, cracks each group with frequency analysis.
+    Returns (keyword, decrypted_text, score).
+    """
+    best_keyword = ""
+    best_score = -1
+    best_result = text
+
+    for key_len in range(2, max_key_length + 1):
+        keyword = ""
+        for i in range(key_len):
+            group = [text[j] for j in range(i, len(text), key_len) if text[j].isalpha()]
+            if not group:
+                continue
+            freq = Counter(c.upper() for c in group)
+            most_common = freq.most_common(1)[0][0]
+            shift = (ord(most_common) - ord('E')) % 26
+            keyword += chr(ord('a') + shift)
+
+        decrypted = vigenere_decrypt(text, keyword)
+        words = decrypted.split()
+        matches = sum(1 for w in words if word_in_dict(w, dictionary)) if words else 0
+        score = matches / len(words) if words else 0
+
+        if score > best_score:
+            best_score = score
+            best_keyword = keyword
+            best_result = decrypted
+
+    return best_keyword, best_result, round(best_score * 100)
 
 # ─── Frequency analysis ───────────────────────────────────────────────────────
 
@@ -238,6 +288,24 @@ def decode(text, mode="auto"):
         result = atbash(text)
         print_separator()
         print("ATBASH")
+        print_separator()
+        print(f"  {result}")
+        print()
+
+    elif mode == "reverse":
+        reversed_text = text[::-1]
+        shift, result, score = caesar_auto(reversed_text, dictionary)
+        confidence = round(score * 100)
+        print_separator()
+        print(f"REVERSE CAESAR — shift {shift} ({confidence}% word match)")
+        print_separator()
+        print(f"  {result}")
+        print()
+
+    elif mode == "vigenere":
+        keyword, result, score = vigenere_auto(text, dictionary)
+        print_separator()
+        print(f"VIGENÈRE AUTO-CRACK — keyword: '{keyword}' ({score}% match)")
         print_separator()
         print(f"  {result}")
         print()

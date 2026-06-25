@@ -6,16 +6,18 @@ Supported ciphers:
     - Caesar cipher (auto-detect via dictionary scoring)
     - ROT13
     - Atbash
-    - More to be added as new cipher types are identified in the book
+    - Reverse Caesar
+    - Vigenère (auto-crack)
+    - Columnar Transposition (auto-crack)
 """
 
 import string
 import os
 from collections import Counter
+from itertools import permutations
 
 # ─── Dictionary loader ────────────────────────────────────────────────────────
 
-# Common English words as fallback (no installation needed)
 COMMON_WORDS = {
     "the", "of", "and", "to", "a", "in", "is", "it", "you", "that", "he",
     "was", "for", "on", "are", "with", "as", "his", "they", "at", "be",
@@ -27,18 +29,15 @@ COMMON_WORDS = {
     "could", "my", "than", "first", "been", "its", "who", "now", "people",
     "have", "like", "time", "very", "know", "used", "just", "own", "i",
     "cost", "bus", "driver", "punch", "transfers", "phone", "call", "system",
-    "computer", "security", "password", "access", "hack", "code", "network"
+    "computer", "security", "password", "access", "hack", "code", "network",
+    "juvenile", "authorities", "identities", "create", "taught", "book"
 }
 
 
 def load_dictionary():
-    """
-    Load word list for dictionary scoring.
-    Tries system dictionary first, falls back to built-in word list.
-    """
     system_paths = [
-        "/usr/share/dict/words",           # Mac / Linux
-        "/usr/dict/words",                 # older Unix
+        "/usr/share/dict/words",
+        "/usr/dict/words",
     ]
     for path in system_paths:
         if os.path.exists(path):
@@ -47,7 +46,6 @@ def load_dictionary():
             print(f"  Dictionary: system ({len(words):,} words)")
             return words
 
-    # Fallback: try pyenchant
     try:
         import enchant
         d = enchant.Dict("en_US")
@@ -61,7 +59,6 @@ def load_dictionary():
 
 
 def word_in_dict(word, dictionary):
-    """Check if a word exists in the dictionary (handles both set and enchant)."""
     w = word.lower().strip(string.punctuation)
     if not w:
         return False
@@ -73,7 +70,6 @@ def word_in_dict(word, dictionary):
 # ─── Caesar ───────────────────────────────────────────────────────────────────
 
 def caesar_decrypt(text, shift):
-    """Decrypt a Caesar cipher with a given shift."""
     result = []
     for char in text:
         if char.isalpha():
@@ -85,10 +81,6 @@ def caesar_decrypt(text, shift):
 
 
 def caesar_auto(text, dictionary):
-    """
-    Find the correct Caesar shift by scoring each decryption
-    against a dictionary. Returns (shift, decrypted_text, score).
-    """
     best_shift = 0
     best_score = -1
     best_result = text
@@ -112,14 +104,12 @@ def caesar_auto(text, dictionary):
 # ─── ROT13 ────────────────────────────────────────────────────────────────────
 
 def rot13(text):
-    """ROT13 is Caesar with shift 13 — its own inverse."""
     return caesar_decrypt(text, 13)
 
 
 # ─── Atbash ───────────────────────────────────────────────────────────────────
 
 def atbash(text):
-    """Atbash cipher: A↔Z, B↔Y, C↔X, etc."""
     result = []
     for char in text:
         if char.isalpha():
@@ -129,10 +119,10 @@ def atbash(text):
             result.append(char)
     return "".join(result)
 
+
 # ─── Vigenère ─────────────────────────────────────────────────────────────────
 
 def vigenere_decrypt(text, keyword):
-    """Decrypt a Vigenère cipher with a given keyword."""
     keyword = keyword.lower()
     result = []
     key_index = 0
@@ -148,11 +138,6 @@ def vigenere_decrypt(text, keyword):
 
 
 def vigenere_auto(text, dictionary, max_key_length=10):
-    """
-    Crack a Vigenère cipher without knowing the keyword.
-    Tests key lengths 2-10, cracks each group with frequency analysis.
-    Returns (keyword, decrypted_text, score).
-    """
     best_keyword = ""
     best_score = -1
     best_result = text
@@ -180,10 +165,48 @@ def vigenere_auto(text, dictionary, max_key_length=10):
 
     return best_keyword, best_result, round(best_score * 100)
 
+
+# ─── Columnar Transposition ───────────────────────────────────────────────────
+
+def columnar_decrypt(text, group_size, order):
+    letters = [c for c in text if c.isalpha()]
+    result = []
+    i = 0
+    while i < len(letters):
+        group = letters[i:i + group_size]
+        if len(group) == group_size:
+            for pos in order:
+                if pos < len(group):
+                    result.append(group[pos])
+        i += group_size
+    return "".join(result)
+
+
+def columnar_auto(text, dictionary, max_group=8):
+    best_score = -1
+    best_result = text
+    best_group = 0
+    best_order = []
+
+    for group_size in range(2, max_group + 1):
+        for order in permutations(range(group_size)):
+            decrypted = columnar_decrypt(text, group_size, list(order))
+            words = [decrypted[i:i+5] for i in range(0, len(decrypted), 5)]
+            matches = sum(1 for w in words if word_in_dict(w, dictionary))
+            score = matches / len(words) if words else 0
+
+            if score > best_score:
+                best_score = score
+                best_result = decrypted
+                best_group = group_size
+                best_order = list(order)
+
+    return best_group, best_order, best_result, round(best_score * 100)
+
+
 # ─── Frequency analysis ───────────────────────────────────────────────────────
 
 def frequency_analysis(text):
-    """Show letter frequencies in the cipher text."""
     letters = [c.upper() for c in text if c.isalpha()]
     total = len(letters)
     if total == 0:
@@ -217,7 +240,6 @@ def print_frequency_analysis(text):
 
 
 def print_caesar_all(text, dictionary, top_n=5):
-    """Print all shifts ranked by dictionary score."""
     results = []
     for shift in range(26):
         decrypted = caesar_decrypt(text, shift)
@@ -239,16 +261,6 @@ def print_caesar_all(text, dictionary, top_n=5):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def decode(text, mode="auto"):
-    """
-    Decode a cipher text.
-
-    Modes:
-        auto   — dictionary scoring to find best Caesar shift (default)
-        brute  — show all 26 shifts ranked by dictionary score
-        rot13  — ROT13
-        atbash — Atbash
-        freq   — frequency analysis only
-    """
     print()
     print("  GHOST IN THE WIRES — Cipher Decoder")
     print_separator("═")
@@ -310,12 +322,20 @@ def decode(text, mode="auto"):
         print(f"  {result}")
         print()
 
+    elif mode == "columnar":
+        group, order, result, score = columnar_auto(text, dictionary)
+        print_separator()
+        print(f"COLUMNAR TRANSPOSITION — group size {group}, order {order} ({score}% match)")
+        print_separator()
+        print(f"  {result}")
+        print()
+
     elif mode == "freq":
         print_frequency_analysis(text)
 
     else:
         print(f"Unknown mode: {mode}")
-        print("Available modes: auto, brute, top, rot13, atbash, freq")
+        print("Available modes: auto, brute, top, rot13, atbash, reverse, vigenere, columnar, freq")
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
@@ -331,6 +351,9 @@ if __name__ == "__main__":
         print('  python3 decoder.py "your cipher text" top')
         print('  python3 decoder.py "your cipher text" rot13')
         print('  python3 decoder.py "your cipher text" atbash')
+        print('  python3 decoder.py "your cipher text" reverse')
+        print('  python3 decoder.py "your cipher text" vigenere')
+        print('  python3 decoder.py "your cipher text" columnar')
         print('  python3 decoder.py "your cipher text" freq')
         print()
         print("Default mode: auto (dictionary scoring)")
